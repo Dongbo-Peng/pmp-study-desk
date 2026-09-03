@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
+import { parsePastedQuestion } from '@/lib/question-parser';
 
 type Letter = 'A' | 'B' | 'C' | 'D' | 'E';
 type Question = {
@@ -139,16 +140,11 @@ function QuestionForm({ initial, onSave, onCancel }: { initial?: Question; onSav
   function switchType(next: 'single' | 'multiple') { setType(next); setAnswers([]); setMessage(''); }
   function toggleAnswer(letter: Letter) { setAnswers((now) => type === 'single' ? [letter] : now.includes(letter) ? now.filter((x) => x !== letter) : now.length < 3 ? [...now, letter] : now); }
   function parseBulk() {
-    const lines = bulk.split(/\n/).map((x) => x.trim()).filter(Boolean); const next = blankOptions(); let q = ''; let exp = ''; let found: Letter[] = []; let section: 'q' | 'exp' = 'q';
-    for (const line of lines) {
-      const opt = line.match(/^([A-E])[\.、:\s]\s*(.+)$/i); const ans = line.match(/^(?:正确)?答案[：:]\s*([A-E,，\s]+)/i); const explain = line.match(/^(?:答案)?解析[：:]\s*(.*)$/i);
-      if (opt) next[opt[1].toUpperCase() as Letter] = opt[2];
-      else if (ans) found = (ans[1].toUpperCase().match(/[A-E]/g) || []) as Letter[];
-      else if (explain) { section = 'exp'; exp += explain[1]; }
-      else if (section === 'exp') exp += `${exp ? '\n' : ''}${line}`; else q += `${q ? '\n' : ''}${line}`;
-    }
-    const count = Object.values(next).filter(Boolean).length; const inferred = count === 5 || found.length > 1 ? 'multiple' : 'single';
-    setType(inferred); setPrompt(q); setOptions(next); setAnswers(found); setExplanation(exp); setMessage(count >= 4 && q ? '已识别并填入，请检查后保存。' : '未完整识别，请参考示例格式或手动填写。');
+    const parsed = parsePastedQuestion(bulk);
+    setType(parsed.type); setPrompt(parsed.prompt); setOptions(parsed.options); setAnswers(parsed.answers); setExplanation(parsed.explanation);
+    const expectedOptions = parsed.type === 'single' ? 4 : 5;
+    const complete = parsed.prompt && parsed.optionCount === expectedOptions && parsed.answers.length > 0 && parsed.explanation;
+    setMessage(complete ? `识别成功：${parsed.type === 'single' ? '单选题' : '多选题'}、${parsed.optionCount} 个选项、答案 ${parsed.answers.join('、')}，请检查后保存。` : `已识别题干、${parsed.optionCount} 个选项和${parsed.answers.length ? `答案 ${parsed.answers.join('、')}` : '答案未识别'}；请检查缺失内容。`);
   }
   function submit(e: React.FormEvent) {
     e.preventDefault(); const required = type === 'single' ? 4 : 5; const validAnswerCount = type === 'single' ? answers.length === 1 : answers.length === 2 || answers.length === 3;
@@ -157,7 +153,7 @@ function QuestionForm({ initial, onSave, onCancel }: { initial?: Question; onSav
     onSave({ id: initial?.id || crypto.randomUUID(), type, prompt: prompt.trim(), options: cleanOptions, answers: sortLetters(answers), explanation: explanation.trim(), attempts: initial?.attempts || 0, wrongCount: initial?.wrongCount || 0, mastered: initial?.mastered || false, createdAt: initial?.createdAt || Date.now() });
   }
   return <section className="mx-auto max-w-5xl px-5 py-7 sm:px-8 sm:py-10"><button onClick={onCancel} className="mb-5 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft />返回题库</button><div className="mb-7"><span className="eyebrow">{initial ? '编辑题目' : '添加题目'}</span><h1 className="mt-2 text-3xl font-bold tracking-tight">复制粘贴，快速建立题库</h1></div>
-    {!initial && <div className="mb-6 rounded-[24px] border bg-card p-5 sm:p-6"><div className="flex items-start gap-3"><ClipboardPaste className="mt-1 text-primary" /><div className="flex-1"><h2 className="font-bold">智能粘贴整道题</h2><p className="mt-1 text-sm text-muted-foreground">支持“题目 + A.选项 + 答案：AC + 解析：……”格式，每项单独一行。</p><Textarea value={bulk} onChange={(e) => setBulk(e.target.value)} className="mt-4 min-h-40 bg-background" placeholder={'项目经理首先应该做什么？\nA. 更新风险登记册\nB. 与团队沟通\nC. 上报发起人\nD. 忽略问题\n答案：B\n解析：先沟通并了解实际情况。'} /><Button type="button" variant="secondary" className="mt-3" onClick={parseBulk}><ClipboardPaste />识别并填入</Button></div></div></div>}
+    {!initial && <div className="mb-6 rounded-[24px] border bg-card p-5 sm:p-6"><div className="flex items-start gap-3"><ClipboardPaste className="mt-1 text-primary" /><div className="flex-1"><h2 className="font-bold">智能粘贴整道题</h2><p className="mt-1 text-sm text-muted-foreground">可直接粘贴考试页面内容，支持选项字母和内容分行、正确答案、你的答案及解析等常见格式。</p><Textarea value={bulk} onChange={(e) => setBulk(e.target.value)} className="mt-4 min-h-40 bg-background" placeholder={'单选题\n/1分\n项目经理首先应该做什么？\nA\n更新风险登记册\nB\n与团队沟通\nC\n上报发起人\nD\n忽略问题\n正确答案：B\n你的答案：D\n解析\n先沟通并了解实际情况。'} /><Button type="button" variant="secondary" className="mt-3" onClick={parseBulk}><ClipboardPaste />识别并填入</Button></div></div></div>}
     <form onSubmit={submit} className="rounded-[28px] border bg-card p-5 sm:p-8"><div className="mb-6"><label className="field-label">题型</label><div className="mt-2 grid max-w-md grid-cols-2 rounded-xl bg-muted p-1"><button type="button" onClick={() => switchType('single')} className={`type-tab ${type === 'single' ? 'active' : ''}`}>单选题 · 4项选1</button><button type="button" onClick={() => switchType('multiple')} className={`type-tab ${type === 'multiple' ? 'active' : ''}`}>多选题 · 5项选2/3</button></div></div><label className="field-label">题目</label><Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} className="mt-2 min-h-28" placeholder="粘贴题目正文" />
       <div className="mt-6 space-y-3"><label className="field-label">备选答案</label>{letters.map((letter) => <div key={letter} className="grid grid-cols-[46px_1fr] gap-3"><button type="button" aria-label={`设为正确答案 ${letter}`} onClick={() => toggleAnswer(letter)} className={`answer-key ${answers.includes(letter) ? 'selected' : ''}`}>{answers.includes(letter) ? <Check /> : letter}</button><Input value={options[letter]} onChange={(e) => setOptions({ ...options, [letter]: e.target.value })} className="h-11 bg-background" placeholder={`${letter} 选项内容`} /></div>)}</div>
       <p className="mt-3 text-xs text-muted-foreground">点击左侧字母标记正确答案。{type === 'multiple' && `当前选择 ${answers.length} 项，须选择 2 项或 3 项。`}</p><div className="mt-6"><label className="field-label">答案解析</label><Textarea value={explanation} onChange={(e) => setExplanation(e.target.value)} className="mt-2 min-h-32" placeholder="粘贴答案解析，说明为什么正确以及其他选项的问题" /></div>{message && <p role="alert" className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{message}</p>}<div className="mt-7 flex justify-end gap-3"><Button type="button" variant="ghost" onClick={onCancel}>取消</Button><Button type="submit" size="lg"><Save />保存题目</Button></div></form></section>;
