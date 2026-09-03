@@ -30,6 +30,19 @@ const demoQuestions: Question[] = [
 const blankOptions = (): Record<Letter, string> => ({ A: '', B: '', C: '', D: '', E: '' });
 const sortLetters = (letters: Letter[]) => [...letters].sort();
 const sameAnswers = (a: Letter[], b: Letter[]) => JSON.stringify(sortLetters(a)) === JSON.stringify(sortLetters(b));
+const allowedLetters = (type: Question['type']): Letter[] => type === 'single' ? ['A', 'B', 'C', 'D'] : ['A', 'B', 'C', 'D', 'E'];
+
+function normalizeQuestion(question: Question): Question {
+  const letters = allowedLetters(question.type);
+  const options = Object.fromEntries(
+    letters.map((letter) => [letter, question.options?.[letter] || '']),
+  ) as Partial<Record<Letter, string>>;
+  return {
+    ...question,
+    options,
+    answers: question.answers.filter((answer) => letters.includes(answer)),
+  };
+}
 
 export default function Home() {
   const [questions, setQuestions] = useState<Question[]>(demoQuestions);
@@ -45,7 +58,7 @@ export default function Home() {
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        if (Array.isArray(data.questions)) setQuestions(data.questions);
+        if (Array.isArray(data.questions)) setQuestions(data.questions.map(normalizeQuestion));
         if (data.session?.queue?.length) { setQueue(data.session.queue); setIndex(data.session.index || 0); setMode(data.session.mode || 'all'); }
       } catch { /* keep demo data */ }
     }
@@ -74,7 +87,8 @@ export default function Home() {
   }
 
   function saveQuestion(question: Question) {
-    setQuestions((items) => editingId ? items.map((q) => q.id === editingId ? question : q) : [...items, question]);
+    const normalized = normalizeQuestion(question);
+    setQuestions((items) => editingId ? items.map((q) => q.id === editingId ? normalized : q) : [...items, normalized]);
     setEditingId(null); setView('bank');
   }
 
@@ -139,7 +153,8 @@ function QuestionForm({ initial, onSave, onCancel }: { initial?: Question; onSav
   function submit(e: React.FormEvent) {
     e.preventDefault(); const required = type === 'single' ? 4 : 5; const validAnswerCount = type === 'single' ? answers.length === 1 : answers.length === 2 || answers.length === 3;
     if (!prompt.trim() || letters.some((l) => !options[l].trim()) || !validAnswerCount || !explanation.trim()) { setMessage(`请完整填写题目、${required} 个选项、正确答案和解析。`); return; }
-    onSave({ id: initial?.id || crypto.randomUUID(), type, prompt: prompt.trim(), options, answers: sortLetters(answers), explanation: explanation.trim(), attempts: initial?.attempts || 0, wrongCount: initial?.wrongCount || 0, mastered: initial?.mastered || false, createdAt: initial?.createdAt || Date.now() });
+    const cleanOptions = Object.fromEntries(letters.map((letter) => [letter, options[letter].trim()])) as Partial<Record<Letter, string>>;
+    onSave({ id: initial?.id || crypto.randomUUID(), type, prompt: prompt.trim(), options: cleanOptions, answers: sortLetters(answers), explanation: explanation.trim(), attempts: initial?.attempts || 0, wrongCount: initial?.wrongCount || 0, mastered: initial?.mastered || false, createdAt: initial?.createdAt || Date.now() });
   }
   return <section className="mx-auto max-w-5xl px-5 py-7 sm:px-8 sm:py-10"><button onClick={onCancel} className="mb-5 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft />返回题库</button><div className="mb-7"><span className="eyebrow">{initial ? '编辑题目' : '添加题目'}</span><h1 className="mt-2 text-3xl font-bold tracking-tight">复制粘贴，快速建立题库</h1></div>
     {!initial && <div className="mb-6 rounded-[24px] border bg-card p-5 sm:p-6"><div className="flex items-start gap-3"><ClipboardPaste className="mt-1 text-primary" /><div className="flex-1"><h2 className="font-bold">智能粘贴整道题</h2><p className="mt-1 text-sm text-muted-foreground">支持“题目 + A.选项 + 答案：AC + 解析：……”格式，每项单独一行。</p><Textarea value={bulk} onChange={(e) => setBulk(e.target.value)} className="mt-4 min-h-40 bg-background" placeholder={'项目经理首先应该做什么？\nA. 更新风险登记册\nB. 与团队沟通\nC. 上报发起人\nD. 忽略问题\n答案：B\n解析：先沟通并了解实际情况。'} /><Button type="button" variant="secondary" className="mt-3" onClick={parseBulk}><ClipboardPaste />识别并填入</Button></div></div></div>}
@@ -156,7 +171,7 @@ function Practice({ question, index, total, mode, onAnswer, onNext, onExit, onRe
   const [selected, setSelected] = useState<Letter[]>([]); const [submitted, setSubmitted] = useState(false); const [correct, setCorrect] = useState(false);
   useEffect(() => { setSelected([]); setSubmitted(false); setCorrect(false); }, [question?.id]);
   if (!question) return <section className="mx-auto max-w-3xl px-5 py-12 sm:px-8"><div className="empty-state"><CheckCircle2 className="text-primary" /><h1>{total ? '本轮练习完成' : '目前没有符合条件的题目'}</h1><p>{total ? '做得好！可以继续只做错题，直到全部攻克。' : '先去做一轮全部题目，错题会自动收集在这里。'}</p><div className="flex flex-wrap justify-center gap-3"><Button variant="outline" onClick={onExit}>返回概览</Button>{total > 0 && <Button onClick={onRestartWrong}>继续攻克错题</Button>}</div></div></section>;
-  const letters = Object.keys(question.options) as Letter[]; const need = question.type === 'single' ? 1 : question.answers.length;
+  const letters = allowedLetters(question.type); const need = question.type === 'single' ? 1 : question.answers.length;
   function choose(letter: Letter) { if (submitted) return; setSelected((now) => question.type === 'single' ? [letter] : now.includes(letter) ? now.filter((x) => x !== letter) : now.length < need ? [...now, letter] : now); }
   function submit() { const ok = sameAnswers(selected, question.answers); setCorrect(ok); setSubmitted(true); onAnswer(question.id, ok); }
   return <section className="mx-auto max-w-4xl px-5 py-7 sm:px-8 sm:py-10"><div className="mb-5 flex items-center justify-between"><button onClick={onExit} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><X />退出并保存</button><span className="text-sm font-semibold">{index + 1} / {total}</span></div><Progress value={total ? ((index + 1) / total) * 100 : 0} className="mb-6" />
