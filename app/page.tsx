@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft, ArrowRight, BookOpenCheck, Check, CheckCircle2, CircleAlert,
-  ClipboardPaste, Flame, Home as HomeIcon, Library, Pencil, Plus, RotateCcw,
-  Save, Target, Trash2, X,
+  ClipboardPaste, Download, Flame, Home as HomeIcon, Library, Pencil, Plus, RotateCcw,
+  Save, Target, Trash2, Upload, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -93,6 +93,26 @@ export default function Home() {
     setEditingId(null); setView('bank');
   }
 
+  function replaceQuestions(raw: string) {
+    const parsed = JSON.parse(raw);
+    const imported = Array.isArray(parsed) ? parsed : parsed?.questions;
+    if (!Array.isArray(imported) || imported.length === 0) throw new Error('备份中没有题目');
+    const valid = imported.filter((q) =>
+      (q?.type === 'single' || q?.type === 'multiple') &&
+      typeof q.prompt === 'string' && q.options && Array.isArray(q.answers) && typeof q.explanation === 'string',
+    ).map((q, i) => normalizeQuestion({
+      ...q,
+      id: typeof q.id === 'string' ? q.id : `imported-${Date.now()}-${i}`,
+      attempts: Number.isFinite(q.attempts) ? q.attempts : 0,
+      wrongCount: Number.isFinite(q.wrongCount) ? q.wrongCount : 0,
+      mastered: Boolean(q.mastered),
+      createdAt: Number.isFinite(q.createdAt) ? q.createdAt : Date.now() + i,
+    }));
+    if (!valid.length) throw new Error('备份格式不正确');
+    setQuestions(valid); setQueue([]); setIndex(0);
+    return valid.length;
+  }
+
   function finishAnswer(id: string, correct: boolean) {
     setQuestions((items) => items.map((q) => q.id !== id ? q : {
       ...q, attempts: q.attempts + 1, wrongCount: q.wrongCount + (correct ? 0 : 1),
@@ -106,7 +126,7 @@ export default function Home() {
       <AppHeader view={view} setView={setView} onAdd={() => { setEditingId(null); setView('add'); }} />
       {view === 'home' && <Dashboard questions={questions} stats={stats} canResume={queue.length > 0 && index < queue.length} startPractice={startPractice} setView={setView} />}
       {view === 'add' && <QuestionForm initial={editingId ? questions.find((q) => q.id === editingId) : undefined} onSave={saveQuestion} onCancel={() => { setEditingId(null); setView('bank'); }} />}
-      {view === 'bank' && <QuestionBank questions={questions} onAdd={() => { setEditingId(null); setView('add'); }} onEdit={(id) => { setEditingId(id); setView('add'); }} onDelete={(id) => setQuestions((items) => items.filter((q) => q.id !== id))} />}
+      {view === 'bank' && <QuestionBank questions={questions} onAdd={() => { setEditingId(null); setView('add'); }} onEdit={(id) => { setEditingId(id); setView('add'); }} onDelete={(id) => setQuestions((items) => items.filter((q) => q.id !== id))} onReplace={replaceQuestions} />}
       {view === 'practice' && <Practice question={current} index={index} total={queue.length} mode={mode} onAnswer={finishAnswer} onNext={() => setIndex((i) => i + 1)} onExit={() => setView('home')} onRestartWrong={() => startPractice('wrong')} />}
       <footer className="mx-auto max-w-7xl px-5 pb-8 pt-3 text-center text-xs text-muted-foreground sm:px-8">题库与进度仅保存在当前浏览器 · 请勿在无痕模式中长期使用</footer>
     </main>
@@ -159,8 +179,19 @@ function QuestionForm({ initial, onSave, onCancel }: { initial?: Question; onSav
       <p className="mt-3 text-xs text-muted-foreground">点击左侧字母标记正确答案。{type === 'multiple' && `当前选择 ${answers.length} 项，须选择 2 项或 3 项。`}</p><div className="mt-6"><label className="field-label">答案解析</label><Textarea value={explanation} onChange={(e) => setExplanation(e.target.value)} className="mt-2 min-h-32" placeholder="粘贴答案解析，说明为什么正确以及其他选项的问题" /></div>{message && <p role="alert" className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{message}</p>}<div className="mt-7 flex justify-end gap-3"><Button type="button" variant="ghost" onClick={onCancel}>取消</Button><Button type="submit" size="lg"><Save />保存题目</Button></div></form></section>;
 }
 
-function QuestionBank({ questions, onAdd, onEdit, onDelete }: { questions: Question[]; onAdd: () => void; onEdit: (id: string) => void; onDelete: (id: string) => void }) {
-  return <section className="mx-auto max-w-5xl px-5 py-7 sm:px-8 sm:py-10"><div className="mb-7 flex items-end justify-between gap-4"><div><span className="eyebrow">我的题库</span><h1 className="mt-2 text-3xl font-bold tracking-tight">共 {questions.length} 道题</h1></div><Button onClick={onAdd}><Plus />继续录题</Button></div>{questions.length === 0 ? <div className="empty-state"><Library /><h2>题库还是空的</h2><p>添加第一道题，开始你的 PMP 学习。</p><Button onClick={onAdd}>录入新题</Button></div> : <div className="space-y-3">{questions.map((q, i) => <article key={q.id} className="rounded-[22px] border bg-card p-5"><div className="flex items-start gap-4"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-sm font-bold">{i + 1}</span><div className="min-w-0 flex-1"><div className="mb-2 flex flex-wrap items-center gap-2"><span className="tag">{q.type === 'single' ? '单选题' : `多选题 · ${q.answers.length}项`}</span>{q.wrongCount > 0 && <span className="tag wrong">错过 {q.wrongCount} 次</span>}{q.mastered && <span className="tag mastered">已攻克</span>}</div><h2 className="line-clamp-2 font-semibold leading-7">{q.prompt}</h2><p className="mt-2 text-sm text-muted-foreground">正确答案：{q.answers.join('、')} · 已作答 {q.attempts} 次</p></div><div className="flex shrink-0 gap-1"><Button size="icon" variant="ghost" aria-label="编辑题目" onClick={() => onEdit(q.id)}><Pencil /></Button><Button size="icon" variant="ghost" aria-label="删除题目" onClick={() => { if (confirm('确定删除这道题吗？')) onDelete(q.id); }}><Trash2 /></Button></div></div></article>)}</div>}</section>;
+function QuestionBank({ questions, onAdd, onEdit, onDelete, onReplace }: { questions: Question[]; onAdd: () => void; onEdit: (id: string) => void; onDelete: (id: string) => void; onReplace: (raw: string) => number }) {
+  const [backup, setBackup] = useState('');
+  const [backupMessage, setBackupMessage] = useState('');
+  function downloadBackup() {
+    const blob = new Blob([JSON.stringify({ questions }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob); const link = document.createElement('a');
+    link.href = url; link.download = `pmp题库备份-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url);
+  }
+  function importBackup() {
+    try { const count = onReplace(backup); setBackup(''); setBackupMessage(`已恢复 ${count} 道题。`); }
+    catch { setBackupMessage('无法识别该备份，请确认粘贴了完整的题库备份内容。'); }
+  }
+  return <section className="mx-auto max-w-5xl px-5 py-7 sm:px-8 sm:py-10"><div className="mb-7 flex items-end justify-between gap-4"><div><span className="eyebrow">我的题库</span><h1 className="mt-2 text-3xl font-bold tracking-tight">共 {questions.length} 道题</h1></div><Button onClick={onAdd}><Plus />继续录题</Button></div><details className="mb-5 rounded-[20px] border bg-card p-4"><summary className="cursor-pointer font-semibold">题库备份与迁移</summary><p className="mt-3 text-sm leading-6 text-muted-foreground">题目仅保存在当前浏览器。建议定期下载备份；更换设备或网址时，可粘贴备份内容恢复。</p><div className="mt-4 flex flex-wrap gap-3"><Button variant="outline" onClick={downloadBackup}><Download />下载题库备份</Button></div><Textarea aria-label="粘贴题库备份" value={backup} onChange={(e) => setBackup(e.target.value)} className="mt-4 min-h-28 bg-background" placeholder="在这里粘贴题库备份内容" /><Button className="mt-3" disabled={!backup.trim()} onClick={importBackup}><Upload />替换并恢复题库</Button>{backupMessage && <p className="mt-3 text-sm font-medium text-primary">{backupMessage}</p>}</details>{questions.length === 0 ? <div className="empty-state"><Library /><h2>题库还是空的</h2><p>添加第一道题，开始你的 PMP 学习。</p><Button onClick={onAdd}>录入新题</Button></div> : <div className="space-y-3">{questions.map((q, i) => <article key={q.id} className="rounded-[22px] border bg-card p-5"><div className="flex items-start gap-4"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-sm font-bold">{i + 1}</span><div className="min-w-0 flex-1"><div className="mb-2 flex flex-wrap items-center gap-2"><span className="tag">{q.type === 'single' ? '单选题' : `多选题 · ${q.answers.length}项`}</span>{q.wrongCount > 0 && <span className="tag wrong">错过 {q.wrongCount} 次</span>}{q.mastered && <span className="tag mastered">已攻克</span>}</div><h2 className="line-clamp-2 font-semibold leading-7">{q.prompt}</h2><p className="mt-2 text-sm text-muted-foreground">正确答案：{q.answers.join('、')} · 已作答 {q.attempts} 次</p></div><div className="flex shrink-0 gap-1"><Button size="icon" variant="ghost" aria-label="编辑题目" onClick={() => onEdit(q.id)}><Pencil /></Button><Button size="icon" variant="ghost" aria-label="删除题目" onClick={() => { if (confirm('确定删除这道题吗？')) onDelete(q.id); }}><Trash2 /></Button></div></div></article>)}</div>}</section>;
 }
 
 function Practice({ question, index, total, mode, onAnswer, onNext, onExit, onRestartWrong }: { question?: Question; index: number; total: number; mode: PracticeMode; onAnswer: (id: string, correct: boolean) => void; onNext: () => void; onExit: () => void; onRestartWrong: () => void }) {
