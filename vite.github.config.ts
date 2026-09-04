@@ -5,7 +5,7 @@ import path from 'node:path';
 
 export default defineConfig({
   root: 'github-pages',
-  base: '/pmp-study-desk/',
+  base: '/',
   css: { postcss: { plugins: [tailwindcss()] } },
   plugins: [react()],
   resolve: { alias: { '@': path.resolve(import.meta.dirname, '.') } },
